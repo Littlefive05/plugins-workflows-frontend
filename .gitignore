@@ -1,0 +1,8 @@
+﻿node_modules/
+dist/
+tools/attic/
+tools/tex/build-tape.log.txt
+*.log
+*.flac
+*.tmp
+.git-old-backup/

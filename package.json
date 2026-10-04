@@ -1,0 +1,20 @@
+{
+  "name": "series-0x2b",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node tools/embed-sources.mjs && vite --host 127.0.0.1 --port 4317",
+    "build": "node tools/embed-sources.mjs && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4318",
+    "assets:tape": "node tools/run-tape-assets.mjs"
+  },
+  "dependencies": {
+    "gsap": "^3.15.0",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2"
+  }
+}

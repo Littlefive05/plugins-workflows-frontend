@@ -1,0 +1,8 @@
+﻿* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.glb binary
+*.mp3 binary
+*.flac binary
+*.ico binary

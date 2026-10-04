@@ -1,0 +1,402 @@
+/* ============================================================
+   SERIES 0x2B — BLEND-TAPE
+   Light editorial catalogue (ACT 01/02)  x  dark data HUD (ACT 03)
+   Pseudo-3D by perspective + layered shadows + scanlines only.
+   Fonts: Bahnschrift (display/labels) + Consolas (data).
+   ============================================================ */
+
+:root {
+  --f-disp: Bahnschrift, 'DIN Alternate', 'Arial Narrow', system-ui, sans-serif;
+  --f-mono: Consolas, 'Cascadia Mono', 'Courier New', monospace;
+
+  --paper: #ece8df;
+  --paper-2: #f4f1ea;
+  --ink: #17181a;
+  --ink-2: #4a4d52;
+  --ink-3: #8b8f96;
+  --rule: rgba(23, 24, 26, 0.18);
+  --rule-2: rgba(23, 24, 26, 0.08);
+
+  --void: #06070a;
+  --void-2: #0b0d12;
+  --neon-c: #7fe9ff;
+  --neon-m: #ff4fa3;
+  --neon-l: #c6ff6e;
+  --neon-y: #ffd479;
+
+  --bg: var(--paper);
+  --fg: var(--ink);
+  --accent: #c8372d;
+
+  --pad: clamp(14px, 2.1vw, 34px);
+  --hud-h: 34px;
+  --tr-h: 52px;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+html { background: var(--paper); }
+body {
+  font-family: var(--f-mono);
+  color: var(--fg);
+  background: var(--bg);
+  /* 必须用 clip 而不是 hidden：hidden 会让 overflow-y 计算成 auto，
+     从而把滚动容器从 html 变成 body —— 那样加在 html 上的 scroll-snap 就失效/打架 */
+  overflow-x: clip;
+  -webkit-font-smoothing: antialiased;
+  /* 背景/文字颜色由滚动进度逐帧插值（米白 → 黑），不要在这里加 transition，
+     否则会和逐帧写入互相打架、产生迟滞感 */
+}
+/* 第三幕只切换文字色（只重绘文字，代价小）。
+   不要在这里切 --bg：body 背景突变会整页重绘（第三幕有 3 万个元素）→ 卡顿。
+   米白→黑的观感由 #veil 幕布的 opacity 负责。 */
+body[data-act="3"] { --fg: #d7dde6; }
+
+/* 第一幕的磁带可按住旋转 → 给出抓取光标（幕内容 pointer-events:none，故光标来自下面的 #gl） */
+body[data-act="1"] #gl { cursor: grab; }
+body[data-act="1"].dragging #gl { cursor: grabbing; }
+
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+.k { font-family: var(--f-disp); letter-spacing: 0.18em; text-transform: uppercase; }
+.v { font-variant-numeric: tabular-nums; letter-spacing: 0.06em; }
+.lab { color: var(--ink-3); font-family: var(--f-disp); letter-spacing: 0.2em; font-size: 9.5px; }
+
+/* ---------- canvases ---------- */
+#gl {
+  position: fixed; inset: 0; width: 100vw; height: 100vh;
+  z-index: 1; display: block;
+  transition: opacity 0.7s ease;
+}
+#cv {
+  position: fixed; inset: 0; width: 100vw; height: 100vh;
+  z-index: 2; display: block; opacity: 0; pointer-events: none;
+  transition: opacity 0.7s ease;
+}
+body[data-act="3"] #cv { opacity: 1; }
+body[data-act="3"] #gl { opacity: 0.14; }
+
+/* ---------- boot / arm ---------- */
+#boot {
+  position: fixed; inset: 0; z-index: 90;
+  background: var(--paper);
+  display: grid; place-items: center;
+  transition: opacity 0.5s ease, visibility 0.5s;
+}
+#boot.off { opacity: 0; visibility: hidden; }
+.boot-inner { text-align: center; }
+.boot-k {
+  font-family: var(--f-disp); letter-spacing: 0.42em; font-size: 11px;
+  color: var(--ink-3); margin-bottom: 10px;
+}
+.boot-t {
+  font-family: var(--f-disp); font-size: clamp(34px, 7vw, 78px);
+  letter-spacing: 0.06em; line-height: 0.94; margin-bottom: 18px;
+}
+.boot-spec {
+  font-size: 11px; color: var(--ink-2); letter-spacing: 0.14em;
+  min-height: 16px; margin-bottom: 26px;
+}
+#arm {
+  position: relative;
+  border: 1px solid var(--ink); padding: 15px 34px;
+  font-family: var(--f-disp); letter-spacing: 0.28em; font-size: 12px;
+  background: transparent; overflow: hidden;
+}
+#arm:hover { background: var(--ink); color: var(--paper); }
+#arm i {
+  position: absolute; left: 0; bottom: 0; height: 2px; width: 0;
+  background: var(--accent); animation: arm 2.4s ease-in-out infinite;
+}
+@keyframes arm { 0% { width: 0 } 60% { width: 100% } 100% { width: 100% } }
+.boot-note {
+  margin-top: 22px; font-size: 9.5px; letter-spacing: 0.24em; color: var(--ink-3);
+  font-family: var(--f-disp);
+}
+
+/* ---------- primary HUD ---------- */
+#hud-top {
+  position: fixed; top: 0; left: 0; right: 0; height: var(--hud-h); z-index: 10;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 var(--pad);
+  border-bottom: 1px solid var(--rule-2);
+  font-size: 10.5px;
+  mix-blend-mode: normal;
+}
+#hud-top .ht-l { display: flex; align-items: center; gap: 9px; }
+#hud-top .ht-c { color: var(--ink-3); letter-spacing: 0.2em; font-family: var(--f-disp); }
+#hud-top .ht-r { display: flex; gap: 16px; align-items: center; }
+#hud-top .v { color: var(--accent); }
+body[data-act="3"] #hud-top { border-bottom-color: rgba(127, 233, 255, 0.16); }
+body[data-act="3"] .k, body[data-act="3"] .lab { color: #7d8794; }
+body[data-act="3"] .v { color: var(--neon-c); }
+#dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+  position: relative;
+}
+/* 脉冲动画只动 transform/opacity（合成属性）。
+   原来动 box-shadow —— 那是每帧重绘 + 模糊，属于非合成动画。 */
+#dot::after {
+  content: ''; position: absolute; inset: -3px; border-radius: 50%;
+  border: 3px solid rgba(200, 55, 45, 0.55);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0% { transform: scale(0.4); opacity: 0.9; }
+  70% { transform: scale(1.9); opacity: 0; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+
+/* left rail */
+#hud-rail {
+  position: fixed; left: calc(var(--pad) * 0.5); top: 50%; transform: translateY(-50%);
+  z-index: 10; display: flex; flex-direction: column; gap: 16px; align-items: flex-start;
+}
+/* 第三幕是密集排版场，导轨需要一点底衬才读得清 */
+body[data-act="3"] #hud-rail {
+  background: linear-gradient(to right, rgba(6, 7, 10, 0.92) 55%, rgba(6, 7, 10, 0));
+  padding: 14px 26px 14px 10px; border-radius: 2px;
+}
+#hud-rail .tick { display: flex; align-items: center; gap: 8px; opacity: 0.34; transition: opacity 0.3s; }
+#hud-rail .tick.on { opacity: 1; }
+#hud-rail .tick i { width: 13px; height: 1px; background: currentColor; display: block; }
+#hud-rail .tick.on i { width: 22px; background: var(--accent); }
+body[data-act="3"] #hud-rail .tick.on i { background: var(--neon-c); }
+#hud-rail .tick span { font-family: var(--f-disp); font-size: 10px; letter-spacing: 0.16em; }
+#hud-rail .tick em { font-style: normal; font-size: 9px; color: var(--ink-3); letter-spacing: 0.18em; }
+.rail-line { width: 1px; height: 62px; background: var(--rule); margin-left: 6px; position: relative; }
+.rail-line b { position: absolute; top: 0; left: 0; width: 1px; height: 0; background: var(--accent); display: block; }
+body[data-act="3"] .rail-line b { background: var(--neon-c); }
+
+/* transport */
+#hud-transport {
+  position: fixed; left: 0; right: 0; bottom: 0; height: var(--tr-h); z-index: 10;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 var(--pad);
+  border-top: 1px solid var(--rule-2);
+  background: linear-gradient(to top, rgba(236, 232, 223, 0.95), rgba(236, 232, 223, 0));
+  /* 不要用 backdrop-filter：背后是持续动画的 WebGL 画布，模糊每帧都要重算，
+     八九块区域叠加起来就是主要卡顿源。改用更高不透明度的底色，观感几乎一致。 */
+  font-size: 10.5px;
+}
+body[data-act="3"] #hud-transport {
+  background: linear-gradient(to top, rgba(6, 7, 10, 0.9), rgba(6, 7, 10, 0));
+  border-top-color: rgba(127, 233, 255, 0.16);
+}
+.tr-l { display: flex; gap: 2px; }
+.tb {
+  border: 1px solid var(--rule); padding: 7px 12px;
+  font-family: var(--f-disp); letter-spacing: 0.16em; font-size: 10px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.tb:hover { border-color: var(--fg); }
+.tb.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+body[data-act="3"] .tb.on { background: var(--neon-c); color: #04121a; border-color: var(--neon-c); }
+.tr-c { display: flex; gap: 26px; align-items: center; }
+.meter, .cnt { display: flex; gap: 7px; align-items: center; }
+.meter b, .cnt b { font-variant-numeric: tabular-nums; letter-spacing: 0.06em; }
+/* LVL：条柱波浪（canvas 画 24 根柱）。比原来的单条电平稳定得多，不再跳变。 */
+.meter canvas { display: block; width: 188px; height: 14px; pointer-events: none; }
+#counter { font-size: 14px; letter-spacing: 0.08em; }
+.tr-r { display: flex; gap: 9px; align-items: center; }
+.tr-r b { font-variant-numeric: tabular-nums; }
+
+/* ---------- act sections ---------- */
+/* 吸附式滚动：每幕正好一屏，一次手势只前进/后退一幕；转场用透明度渐变（由 JS 按滚动进度驱动）
+   注意：不要再加 scroll-behavior:smooth —— 吸附本身就带动画，两者叠加会让深链与吸附互相打架 */
+html {
+  scroll-snap-type: y mandatory;
+}
+.act {
+  position: relative; z-index: 5;
+  min-height: 100vh; padding: calc(var(--hud-h) + 24px) var(--pad) calc(var(--tr-h) + 26px);
+  pointer-events: none;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  /* 不要常驻 will-change：三幕 + 幕布共 6 个整屏合成层会占掉 40MB+ 显存且永不回收。
+     只在转场进行中加 .animating（由 JS 在 updateFade 后 ~0.2s 内摘除）。 */
+}
+.act.animating { will-change: opacity, transform; }
+.act button, .act a { pointer-events: auto; }
+/* 全屏黑色幕布：米白 → 黑 的过渡只靠它的 opacity（纯合成，不重绘） */
+#veil {
+  position: fixed; inset: 0; z-index: 1;
+  background: #06070a; opacity: 0; pointer-events: none;
+}
+#veil.animating { will-change: opacity; }
+
+/* HUD 的强调色在分幕切换时做交叉淡入，避免硬切 */
+#hud-top, #hud-rail, #hud-transport, #hud-rail .tick i, .rail-line b,
+.k, .lab, .v, .tb, .meter b, .meter b::after, .panel, .panel .row, .sb {
+  transition: color 0.7s ease, border-color 0.7s ease, background-color 0.7s ease, box-shadow 0.7s ease;
+}
+
+/* 非当前幕不接收指针事件（避免隔着半透明的幕点到按钮） */
+.act[data-fade="out"] { pointer-events: none; }
+.act[data-fade="in"] { pointer-events: auto; }
+.wrap { max-width: 1560px; margin: 0 auto; height: 100%; position: relative; }
+
+/* ACT 01 typography */
+#act1 .wrap { display: grid; grid-template-columns: minmax(280px, 30%) 1fr; gap: 40px; align-items: start; padding-top: 4vh; }
+#act1 .col-b { justify-self: end; max-width: 460px; text-align: right; }
+.ttl { font-family: var(--f-disp); font-size: clamp(30px, 3.6vw, 60px); line-height: 1.0; letter-spacing: 0.01em; min-height: 1.05em; }
+.rule { height: 1px; background: var(--rule); margin: 20px 0; }
+.spec { font-size: 11.5px; line-height: 1.95; letter-spacing: 0.11em; color: var(--ink-2); }
+.spec i { color: var(--accent); font-style: normal; }
+.kicker { font-family: var(--f-disp); font-size: 10px; letter-spacing: 0.3em; color: var(--ink-3); margin-bottom: 14px; }
+.dense { font-size: 10.5px; line-height: 1.9; letter-spacing: 0.13em; color: var(--ink-3); }
+.scrollq { margin-top: 30px; font-family: var(--f-disp); font-size: 10px; letter-spacing: 0.3em; color: var(--ink-3); }
+.scrollq i { display: inline-block; width: 1px; height: 22px; background: var(--ink-3); margin-left: 8px; vertical-align: middle; animation: drop 1.8s ease-in-out infinite; }
+@keyframes drop { 0%, 100% { transform: translateY(-4px); opacity: 0.4 } 50% { transform: translateY(4px); opacity: 1 } }
+
+/* ACT 02 panels */
+#act2 .wrap { display: grid; grid-template-columns: 250px 1fr 300px; gap: 26px; align-items: center; height: calc(100vh - var(--hud-h) - var(--tr-h) - 50px); }
+/* .states 是绝对定位（脱离文档流），因此必须显式钉住两栏，否则右侧面板会落进 1fr 列 */
+#act2 .panel.left { grid-column: 1; }
+#act2 .panel.right { grid-column: 3; }
+.panel {
+  border: 1px solid var(--rule); padding: 15px 16px 17px;
+  background: rgba(244, 241, 234, 0.88);
+  /* pseudo-3D: slight perspective tilt + layered shadow, no real 3D panel */
+  transform: perspective(900px) rotateY(2.4deg);
+  box-shadow: 0 18px 40px -26px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  position: relative; overflow: hidden;
+}
+.panel::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.035) 0 1px, transparent 1px 3px);
+}
+.panel.left { transform: perspective(900px) rotateY(3.6deg); }
+.panel.right { transform: perspective(900px) rotateY(-3.6deg); }
+.panel.dark {
+  background: rgba(11, 13, 18, 0.72); border-color: rgba(127, 233, 255, 0.18); color: #c8d2dd;
+}
+.panel.dark::after { background: repeating-linear-gradient(to bottom, rgba(127, 233, 255, 0.05) 0 1px, transparent 1px 3px); }
+.ph { font-family: var(--f-disp); font-size: 9.5px; letter-spacing: 0.28em; color: var(--ink-3); border-bottom: 1px solid var(--rule-2); padding-bottom: 9px; margin-bottom: 11px; }
+.kv { display: grid; gap: 4px; }
+.kv .row { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; letter-spacing: 0.1em; }
+.kv .row span { color: var(--ink-3); font-family: var(--f-disp); letter-spacing: 0.16em; }
+.kv .row b { font-variant-numeric: tabular-nums; font-weight: 400; }
+.kv.tight .row { font-size: 10.5px; }
+.panel.dark .kv .row span, .panel.dark .ph { color: #6f7c8b; }
+#scope, #spectrum { display: block; width: 100%; height: auto; margin: 8px 0 10px; border: 1px solid var(--rule-2); }
+
+.states { display: flex; flex-direction: column; gap: 8px; align-items: center; position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); }
+.sb {
+  border: 1px solid var(--rule); padding: 7px 15px; font-family: var(--f-disp);
+  font-size: 10px; letter-spacing: 0.17em; background: rgba(244, 241, 234, 0.92);
+}
+.sb em { font-style: normal; color: var(--ink-3); margin-left: 8px; letter-spacing: 0.2em; }
+.sb:hover { border-color: var(--fg); }
+.sb.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.sb.on em { color: rgba(244, 241, 234, 0.6); }
+
+/* ACT 03 */
+#act3 .wrap { display: grid; grid-template-columns: 280px 1fr; gap: 30px; align-items: start; padding-top: 5vh; }
+.crawl-hint { justify-self: end; text-align: right; max-width: 460px; }
+.crawl-hint .dense { color: #7d8794; }
+.crawl-stats { margin-top: 18px; font-size: 10.5px; letter-spacing: 0.14em; color: #5d6874; line-height: 1.9; font-variant-numeric: tabular-nums; }
+#act3 .kicker { color: #5d6874; }
+
+/* deviations log (honesty panel, hidden by default) */
+#deviations { display: none; }
+
+/* SPLIT 态的细虚线引线 + 小方标（照参考视频的 CAD 式标注） */
+#leaders {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 6; opacity: 0; transition: opacity 0.5s ease;
+}
+#leaders .ld {
+  fill: none; stroke: rgba(23, 24, 26, 0.5); stroke-width: 1;
+  stroke-dasharray: 2 3; stroke-linejoin: round;
+}
+#leaders .ld-sq { fill: none; stroke: rgba(23, 24, 26, 0.7); stroke-width: 1; }
+#leaders .ld-tx {
+  fill: rgba(23, 24, 26, 0.68); font: 400 10px/1 Consolas, monospace;
+  letter-spacing: 0.14em; text-anchor: end;
+}
+
+/* ===== ACT 03 · 爬虫 v3：真实源码行（DOM）+ 放大霓虹标注 + 细线网 ===== */
+.crawl-layer {
+  position: fixed; inset: 0; z-index: 2; pointer-events: none; overflow: hidden;
+  opacity: 0; transition: opacity 0.6s ease;
+  font: 400 12.5px/15px Consolas, "Courier New", monospace;
+  /* 关键：未启用时用 content-visibility 跳过整棵子树的渲染/布局，
+     否则这层约 3 万个元素在幕切换时会整层重新栅格化 → 卡顿 */
+  content-visibility: hidden;
+}
+.crawl-layer.on { content-visibility: visible; }
+/* 注意：这里【不能】写 will-change: transform。
+   每列内容高约 13500px，will-change 会为它建一个 783×13500 的合成层（≈42MB/列），
+   内存与栅格化都极贵。去掉之后浏览器只重绘可视条带（约 60 行文字），代价小得多。 */
+.crawl-col { position: absolute; top: 0; contain: layout paint; }
+.cl { display: flex; height: 15px; line-height: 15px; white-space: pre; }
+.cl .ln { flex: 0 0 54px; text-align: right; padding-right: 12px; color: rgba(125, 135, 148, 0.38); }
+.cl code { color: #8b93a1; }
+.cl.head code { color: #e8e6df; letter-spacing: 0.18em; }
+.cl i { font-style: normal; display: inline-block; }
+/* ↑ inline-block 是关键：token 必须能被 transform（inline 元素上 transform 无效），
+     否则"踢掉代码"的位移/旋转会被整个忽略，看起来就只是消失 */
+.cl i.c { color: #4b5361; }
+.cl i.s { color: #ffd479; }
+.cl i.k { color: #c6ff6e; }
+.cl i.n { color: #7fe9ff; }
+.cl i.t { color: #ff4fa3; }
+.cl i.i { color: #7fe9ff; }
+.cl i.y { color: #dfe3ea; }
+.cl i.v { color: #a8b6c6; }
+.crawl-probe {
+  position: absolute; visibility: hidden;
+  font: 400 12.5px/15px Consolas, "Courier New", monospace;
+}
+/* 命中 token 的放大霓虹标注已移除（用户要求不要特写放大） */
+
+/* ---- 仿生点线蜘蛛：一个圆点身体 + 八条等长的大长腿（髋 / 膝 / 足 三点成线）---- */
+.crawl-spider { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.sp-body { fill: #ff4fa3; }
+.sp-leg { fill: none; stroke: #e8e6df; stroke-width: 0.95; stroke-linecap: round; stroke-linejoin: round; }
+.sp-hip { fill: #7fe9ff; }
+.sp-knee { fill: #ffd479; }
+.sp-foot { fill: #e8e6df; }
+.sp-foot.on { fill: #c6ff6e; }
+.sp-silk { fill: none; stroke: rgba(232, 230, 223, 0.30); stroke-width: 0.8; stroke-dasharray: 2 3; }
+.sp-fly { fill: none; stroke: #e8e6df; stroke-width: 0.9; stroke-dasharray: 1 2; opacity: 0; }
+.sp-ring { fill: none; stroke: #c6ff6e; stroke-width: 1.4; }
+
+/* 被脚踩住的代码：高亮一下。用 outline 而不是 box-shadow —— 无需模糊、不重绘邻居 */
+.cl i.pressed {
+  background: rgba(198, 255, 110, 0.22);
+  outline: 1px solid rgba(198, 255, 110, 0.5);
+  border-radius: 1px;
+}
+
+/* 被吃掉的信息：塌缩消失（稍后重新长出来） */
+.cl i.eaten { animation: sp-eat 0.42s ease forwards; }
+@keyframes sp-eat {
+  40% { transform: translateY(-3px) scale(1.5); opacity: 0.9; }
+  100% { transform: translateY(7px) scale(0.15) rotate(20deg); opacity: 0; }
+}
+
+/* 被踩掉的代码块：物理抛落（初速朝远离蜘蛛的方向 + 重力 + 旋转 + 一次小弹跳）
+   不要 will-change：关键帧只含 transform/opacity，本身就走合成；
+   而 will-change 会把这个 inline-block 提成独立层，配 DROP_CHANCE 0.3 会有成百上千个层常驻。 */
+.cl i.kicked {
+  animation: sp-kick 1.15s linear forwards;
+  transform-origin: 50% 50%;
+}
+@keyframes sp-kick {
+  0%   { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  10%  { transform: translate(calc(var(--kx, 180px) * 0.22), -16px) rotate(calc(var(--kr, 220deg) * 0.18)); opacity: 1; }
+  26%  { transform: translate(calc(var(--kx, 180px) * 0.45), 2px) rotate(calc(var(--kr, 220deg) * 0.45)); opacity: 1; }
+  48%  { transform: translate(calc(var(--kx, 180px) * 0.68), 44px) rotate(calc(var(--kr, 220deg) * 0.72)); opacity: 1; }
+  70%  { transform: translate(calc(var(--kx, 180px) * 0.88), 104px) rotate(calc(var(--kr, 220deg) * 1.0)); opacity: 0.85; }
+  /* 落地 → 小弹跳 → 再落 */
+  78%  { transform: translate(calc(var(--kx, 180px) * 0.94), 74px) rotate(calc(var(--kr, 220deg) * 1.1)); opacity: 0.7; }
+  88%  { transform: translate(calc(var(--kx, 180px) * 1.0), 116px) rotate(calc(var(--kr, 220deg) * 1.2)); opacity: 0.45; }
+  100% { transform: translate(calc(var(--kx, 180px) * 1.08), 168px) rotate(calc(var(--kr, 220deg) * 1.35)); opacity: 0; }
+}
+
+@media (max-width: 1100px) {
+  #act2 .wrap { grid-template-columns: 1fr; }
+  .panel { transform: none; }
+  #act1 .wrap, #act3 .wrap { grid-template-columns: 1fr; }
+}
