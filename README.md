@@ -9,7 +9,7 @@
 ## 运行
 
 ```bash
-cd C:\LFModels\workspaces\series-0x2b
+cd {Path}
 npm install
 npm run build              # = node tools/embed-sources.mjs && vite build
 node tools/serve-dist.cjs  # → http://127.0.0.1:4319/
